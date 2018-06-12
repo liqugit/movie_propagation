@@ -1,0 +1,28 @@
+#!/bin/bash
+
+pushpull=$1
+hgdirs=($HOME/Coding/dotfiles/ $HOME/.vim/ $HOME/Coding/Gale/)
+
+
+
+if [ "$pushpull" = "pull" ]
+then 
+    for tdir in ${hgdirs[*]};
+    do 
+        cd $tdir;
+        hg pull;
+        hg up;
+    done
+elif [ "$pushpull" = "push" ]
+then
+    for tdir in ${hgdirs[*]};
+    do 
+        cd $tdir;
+        hg ci -m "Standard commit fired from the brain";
+        hg push;
+    done
+else
+    echo 'ERROR: Unrecognised option.'
+    echo 'Please submit "push" or "pull" as an option.'
+fi
+

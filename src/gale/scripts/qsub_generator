@@ -1,0 +1,174 @@
+#!/usr/bin/env python
+
+'''
+File: qsub_generator.py
+Author: Adam Pah
+Description: 
+Generates a qsub file for a program to aid in job submission to 
+a torque scheduler.
+
+Usage is:
+    qsub_generator.py program_file optional_arg1 optional_arg2 --kwargs '{"string":"dictionary","on":"command_line"}'
+'''
+
+#Standard path imports
+from optparse import OptionParser
+import os
+import sys
+import json
+import random
+
+#Non-standard imports
+import gale.general.errors as gerr
+
+#Global directories and variables
+
+qsub_text='''
+#! /bin/bash
+#PBS -d %s/
+#PBS -e %s/%s.error
+#PBS -o %s/%s.out
+#PBS -N %s
+#PBS -q low
+
+%s
+'''
+
+msub_text='''
+#! /bin/bash
+#MSUB -A b1022
+#MSUB -l nodes=1:ppn=1
+#MSUB -q %s
+#MSUB -N %s
+#MSUB -j oe
+
+cd $PBS_O_WORKDIR
+module load python/anaconda
+source activate /projects/b1022/general
+%s
+'''
+
+def write_qsub_file(current_dir, wfname, wfpartial, commandLine, opt):
+    '''
+    Writes a qsub file given the generated contents and makes it executable
+    '''
+    wfile = open(wfname, 'w')
+    if opt.msub:
+        print >> wfile, msub_text % (opt.queue,
+                                     wfpartial,
+                                     commandLine)
+    else:
+        print >> wfile, qsub_text % (current_dir,
+                                     current_dir,
+                                     wfpartial,
+                                     current_dir,
+                                     wfpartial,
+                                     wfpartial,
+                                     commandLine)
+    wfile.close()
+    #Change the permissions  
+    os.chmod(wfname, 0755)
+    #Do the hacking, execute and possibly delete the file
+    if opt.execute:
+        if opt.msub:
+            os.system('msub %s' % wfname)
+        else:
+            os.system('qsub %s' % wfname)
+        if opt.temporary:
+            os.system('rm %s' % wfname)
+
+def generate_command_line(fname, fext, cmd_args, cmd_kwargs):
+    '''
+    Generates the bash script
+    '''
+    commandLine = '' 
+    #Get the correct starting command
+    if fext:
+        if fext=='.py':
+            commandLine += 'python '
+        elif fext=='.sh':
+            commandLine += 'bash '
+        else:
+            commandLine += './'
+        #append the program name
+        commandLine += fname + fext
+    else:
+        commandLine += './' + fname
+    #Add the program arguments
+    if cmd_args:
+        commandLine += ' ' + ' '.join(cmd_args)
+    if cmd_kwargs:
+        for k,v in cmd_kwargs.items():
+            commandLine += ' --'+str(k)+' '+str(v)
+    return commandLine
+
+def pull_current(opt):
+    '''
+    Pulls the current directory with home path substition if one is given in as opt.home_repl
+    '''
+    current_dir = os.getcwd()
+    if opt.home_repl:
+        if opt.home_repl != current_dir[:len(opt.home_repl)]:
+            current_dir = os.path.join(opt.home_repl, current_dir.lstrip(os.environ['HOME']))
+    return current_dir
+
+def generate_savename(fname, fext, opt):
+    '''
+    Generates the filename to save the qsub script to
+    '''
+    obstructed_filename = True
+    while obstructed_filename:
+        wfpartial = '%s_%d' % (fname, random.randint(0, 9999999))
+        if opt.msub:
+            wfname = 'msub_%s.sh' % wfpartial
+        else:
+            wfname = 'qsub_%s.sh' % wfpartial
+        if not os.path.exists(wfname):
+            obstructed_filename = False
+    return wfname, wfpartial
+
+def main(args, opt):
+    '''
+    Main function for calling.
+    '''
+    #Separate the program arguments from the input arguments
+    cmd_args, cmd_kwargs = [], []
+    if len(args)>1:
+        cmd_args = args[1:]
+    if opt.kwargs:
+        cmd_kwargs = json.loads(opt.kwargs)
+    #Get the current directory, modify it if a different home is set
+    current_dir = pull_current(opt)
+    #The executing scripts name
+    fname, fext = os.path.splitext(os.path.basename(args[0]))
+    wfname, wfpartial = generate_savename(fname, fext, opt)
+    commandLine = generate_command_line(fname, fext, cmd_args, cmd_kwargs)
+    write_qsub_file(current_dir, wfname, wfpartial, commandLine, opt)
+
+if __name__ == '__main__':
+    usage = '''%prog qsub_generator.py program_file optional_arg1 optional_arg2 --kwargs '{"string":"dictionary","on":"command_line"}' '''
+    parser = OptionParser(usage = usage)
+    parser.add_option('--kwargs', action='store', default=None,
+                      help="String dictionary of keyword arguments to submit to program")
+    parser.add_option('--home_repl', action='store', default=None,
+                      help="path to replace up to the user directory with")
+    parser.add_option('--execute', action='store_true', default=False,
+                      help="Submits qsub script immediately after creation. Only use if on cluster")
+    parser.add_option('--temporary', action='store_true', default=False,
+                      help="Removes the qsub script immediately after submitting with the --execute option")
+    parser.add_option('--msub', action='store_true', default=False,
+                      help="Uses the msub text needed for Quest")
+    parser.add_option('--queue', action='store', default='short',
+                      help="Sets the queue in msub, options are: short, normal, long")
+    (opt, args) = parser.parse_args()
+    #Check that temporary isn't used without execute
+    if opt.temporary and not opt.execute:
+        print >> sys.stderr, "--temporary option is meant to be used with --execute option.\n" + \
+                             "Otherwise I would just generate and then delete files immediately, doing nothing.\n" + \
+                             "Continuing, but not respecting your choice and deleting the file."
+    #There must be an initial argument or else this ship is sunk
+    if len(args)<1:
+        m='''Must have a program name to use as the argument for the qsub file.\n''' + \
+          '''If the file has no extension then it will be submitted as an executable.'''
+        gerr.generic_error_handler(message=m)
+    main(args, opt)

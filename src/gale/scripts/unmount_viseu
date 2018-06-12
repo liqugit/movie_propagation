@@ -1,0 +1,8 @@
+PLATFORM=`uname`
+#Now lets link all the files that are OS dependent
+echo $PLATFORM
+if [[ $PLATFORM == 'Darwin' ]]; then
+    umount $HOME/Amaral/
+elif [[ $PLATFORM == 'Linux' ]]; then
+    fusermount -u $HOME/Amaral/
+fi

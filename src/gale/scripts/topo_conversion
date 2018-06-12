@@ -1,0 +1,10 @@
+#!/bin/bash
+
+SHPFILE=$1
+ID=$2
+BASEFILE=`basename $SHPFILE .shp` 
+LID=`echo $ID | tr '[:upper:]' '[:lower:]'`
+GEOFILE=$BASEFILE'.json'
+TOPOFILE=$BASEFILE'_topo.json'
+ogr2ogr -f GeoJSON $GEOFILE $SHPFILE
+topojson --id-property $ID -p $LID=$ID -p $ID $GEOFILE -o $TOPOFILE

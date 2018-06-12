@@ -1,0 +1,4 @@
+#! /usr/bin/env bash
+
+rm /opt/local/var/db/mongod.lock
+mongod --dbpath=/opt/local/var/db/

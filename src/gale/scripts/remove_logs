@@ -1,0 +1,6 @@
+#!/bin/bash
+
+rm *.error
+rm *.out
+rm *.o[0-9]*
+rm *.out
