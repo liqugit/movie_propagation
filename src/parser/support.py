@@ -51,7 +51,7 @@ def load_dataset(dataset):
     """
     Loads a json dataset as a pandas DataFrame.
     """
-    valid = {'afi_movies', 'movies', 'career'}
+    valid = {'afi_movies', 'movies', 'career', 'producers'}
     if dataset not in valid:
         raise ValueError("`dataset` must be one of: {}".format(", ".join(valid)))
 
@@ -68,6 +68,7 @@ def get_movies_df(role_key):
     Returns a pandas DataFrame with all movies, and actors gender information.
     """
     movies_df = load_dataset("movies")
+
     print('Loaded IMDb movies {}'.format(role_key))
     return movies_df.dropna(subset=[role_key])
 
@@ -87,7 +88,7 @@ def get_movie_budgets_df():
 
     Returns a pandas DataFrame with the year, director info, and budget of all
     movies with a single director.
-    """
+    """     
     movies_df = load_dataset("movies")
     return movies_df.dropna(subset=["adjusted_budget"])
 

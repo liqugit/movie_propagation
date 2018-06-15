@@ -36,115 +36,118 @@ import contextlib
 from os import listdir
 from os.path import isfile, join
 import re
-
+import json
 #Local
 src_dir = os.path.abspath(os.path.join(os.pardir, os.pardir, 'src'))
 sys.path[0] = src_dir
 import model.contagion as contagion
 import network.shift_graph_maker as sgm
-import parsers.reader as read
 import gale.general.errors as gerr
-import parsers.saver as save
+import parser.saver as save
+import parser.support as support
 
+
+def make_filename(directory, network_type, parameter_dict, ver=None):
+    """
+    save the pandas dataframe to csv
+    Input
+        directory - name of save directory
+        network_type - string type of nework type
+        parameter_dict - dict {p:0.1, d:1.0, t:1.0}
+    output
+        save_name - string of save_name
+    """
+    valid = {'real', 'synthetic', 'agg_2year', 'agg_3year', 'agg_4year' 'agg_5year'}
+    if network_type not in valid:
+        network_type = input("network_type must be one of: {}".format(", ".join(valid)))
+    network_dict = {'real':0, 'synthetic':1, 'agg_2year':2, 'agg_3year':3, 'agg_4year':4, 'agg_5year':5}
+    i = 0
+    if ver==None: #version is none for real network, however, synthetic network will have versions already
+        ver = random.randint(10000, 99999)
+    #Generate the name
+    # file name startw with contagion and the networktype
+    file_name = '_'.join(['contagion', str(network_dict[network_type])])
+    # add parameters
+    file_name = '_'.join([file_name, '{p:}_{d:}_{t:}'.format(**parameter_dict)])
+    # add verson 
+    file_name_iter = '_'.join([file_name, str(ver), str(i)])
+    file_name_iter = '.'.join([file_name_iter, 'json'])
+
+    save_name = os.path.abspath(os.path.join(directory, file_name_iter))
+    while os.path.isfile(save_name):
+        #check to see if the name exists already
+        file_name_iter = '_'.join([file_name, str(ver), str(i)])
+        file_name_iter = '.'.join([file_name_iter, 'json'])
+        save_name = os.path.abspath(os.path.join(directory, file_name_iter))
+        i += 1
+    return save_name
 
 ###Functions###
 def main(args):
     #input file as args[0] transform final_schedule.csv
-    data_dir = args.data_dir
+    data_file = args.data_dir
     result_dir = args.result_dir
 
-    # data_dir += '*.csv'
-    print ('Data_dir', data_dir)
+    print ('Data_file', data_file)
     print ('Result_dir', result_dir)
     
-    p, d, b = args.p, args.d, args.b
+    P, D, T = args.p, args.d, args.t
     belief_type = args.belief_type
     iter_no = args.i
-    
-    file_list = [join(data_dir, f) for f in listdir(data_dir) if isfile(join(data_dir, f))]
-    #print(file_list)
-    # m, r, b, = 0.1, 0.2, 0.5 
+    n = args.n #number of times to generate new nework
+    #year
+    start_year = args.start_year #1990
+    end_year = args.end_year #2000
+    #Read data
+    print('Reading file')
+    with open(os.path.abspath(data_file)) as f:
+        movie_file = f.read()
+        movie_data = json.loads(movie_file)
+
+
+    #make movie data into dataframe
+    role = 'producing'
+    role_key = role + "_gender_percentage"
+    movie_df = support.get_movies_df(role_key)
+    print('Got all_movies')
+    gender_df = support.get_staff_df('producers')[['_id', 'female_count', 'first_movie', 'last_movie', 'gender']]
+    movies_period = movie_df[(movie_df.year >= start_year) & (movie_df.year < end_year)]
+    seeds = sgm.generate_gender_seeds(gender_df)
     #starting the dynamics
-    print ('Making data with parameter prob: {:.2f}, dose: {:.2f}, threshold: {:.2f}'.format(p, d, b))
-    for f in range(len(file_list)):
-        f_name = file_list[f]
-        print('Reading file', f_name)
-        file_path = os.path.splitext(f_name)[0].split('_')
-        file_base = os.path.basename(f_name)
-        y = re.compile(r'\d{4}')
-        year = y.search(file_base).group()
-        if args.r == False:
-            df_data, header = read.read_csv_file(f_name)
-            version = file_path[-1]
-            # year = file_path[-3]
-            sched_type = file_path[-4]
-        if args.r == True:
-            df_data, header = read.read_xlsx_file(f_name)
-            # year = file_path[-1]
-            sched_type = 'real'
-            version='orig'
-
-        print('\t\t\t version', version)
-        #for the real schedule
-        for i in range(iter_no):
-            print('\t Building network for iter {}'.format(i))
-            G = sgm.build_temporal_network(df_data, belief_type, b)
-
-            #############3Code block for checking if all the nodes are correct########
-            # doctors_in_order = {G.node[node]['start_date']:[] for node in G.nodes() 
-            #                             if G.node[node]['node_type'] == 'S'} 
-            # for node in G.nodes():
-            #     if G.node[node]['node_type'] == 'D':
-            #         first_shift = G.node[node]['shifts'][0]
-            #         print(first_shift)
-            #         print(G.node[node]['shifts'])
-            #         print(G.nodes())
-            #         first_date = G.node[first_shift]['start_date']
-            #         for happen_date in doctors_in_order.keys():
-            #             if happen_date > first_date:
-            #                 doctors_in_order[happen_date].append(node)
-
-            # change = 0
-            # for key, val in sorted(doctors_in_order.items()):
-            #     print(key, len(val))
-            #     if len(val) > 40:
-            #         print(key.date(), len(val))
-            #         break
-            # date_per_physician = {}
-            # phys_list = []
-            # for i, row in df_data.iterrows():
-            #     att = row.Attending
-            #     fel = row.Fellow
-            #     date = row.Date.to_datetime()
-            #     if att not in  phys_list:
-            #         phys_list.append(att)
-            #     if fel not in phys_list:
-            #         phys_list.append(fel)
-            #     if date not in date_per_physician:
-            #         date_per_physician[date] = deepcopy(phys_list)
-            # for key, val in sorted(date_per_physician.items()):
-            #     print(key, len(val))
-            # input()
-            ############################################################################
-
-            adopter_history = contagion.contagion_belief_propagation_temporal_network(G, p, d, b)
-            if i == 0:
-                print('\t initializing df')
-                df_adopter = pd.DataFrame(adopter_history, columns=['Days', '{}_{}'.format(version, i)])
-                df_adopter = df_adopter.set_index('Days')
+    print ('Making data with parameter prob: {:.2f}, dose: {:.2f}, threshold: {:.2f}'.format(P, D, T))
+    
+    # for n in range(gen_no):
+    print('\t Iteration: {}'.format(n))
+    #Build network
+    if n == 0:
+        movies_period = movies_period.sort_values('year')
+    else:
+        movies_period = movies_period.sample(frac=1).sort_values('year')
+    #for the real schedule
+    print('\t\t Building network')
+    print('\t\t Contagion propagation!')
+    for i in range(iter_no):
+        G = sgm.build_temporal_network(movies_period, seeds, belief_type, T)
+        adopter_history = contagion.contagion_belief_propagation_temporal_network(G, P, D, T)
+        if i == 0:
+            print('\t\t Initializing df')
+            df_adopter = pd.DataFrame(adopter_history, columns=['movie_order', 'year', '{}'.format(i)])
+            df_adopter = df_adopter.set_index('movie_order')
+            year_list = adopter_history[:,1]
+        else:
+            print('\t\t appending df')
+            if np.array_equal(year_list,adopter_history[:,1]):
+                df_adopter['{}'.format(i)] = pd.Series(adopter_history[:, 2], index=adopter_history[:, 0])
             else:
-                print('\t appending df')
-                df_adopter['{}_{}'.format(version, i)] = pd.Series(adopter_history[:, 1], index=adopter_history[:, 0])
-
-        param_dict = {'p':p, 'd':d, 'b':b}
-
-        formatted_parameters = {k: save.parameter_to_string(v, k) for k, v in param_dict.items()}
-        formatted_parameters['year'] = year
-        formatted_parameters['type'] = sched_type
-        formatted_parameters['ver'] = version
-        fname_primer = 'contagion_adopter_{type:}_{p:}_{d:}_{b:}_{year:}_{ver:}_{i:}.json'
-        save.save_file_json(df_adopter, result_dir, fname_primer, formatted_parameters)
-        del df_adopter
+                m = "years are not matching"
+                gerr.generic_error_handler(message=m)
+    print('Saving result for {} iter'.format(n))
+    param_dict = {'p':P, 'd':D, 't':T}
+    formatted_parameters = {k: save.parameter_to_string(v, k) for k, v in param_dict.items()}
+    
+    save_path = make_filename(result_dir, 'real', formatted_parameters,n)
+    save.save_file_json(df_adopter, save_path)
+    del df_adopter
 
 
 if __name__ == '__main__':
@@ -153,21 +156,27 @@ if __name__ == '__main__':
     parser.add_argument('data_dir', help='data directory')
     parser.add_argument('result_dir', help='result directory')
 
+    parser.add_argument('--sched_type', help='schedule type', type=str, default='real',
+                        choices={'real', 'synthetic', 'agg'})
     parser.add_argument('--belief_type', default='empirical', type=str, 
                         choices = {'empirical', 'random', 'apriori'},
                         help='''Ways to instantiate the belief per physician. 
                           Choices are: empirical, random, or apriori
                             ''')
-    parser.add_argument('--run_type', default='original', action='store',
-                    help='''Decide whether we are going to be doing training sets or not
-                            training: do training, end at the given date
-                            testing: do testing, start at the given date
-                            original: just run the contagion model. 
-                        ''')
+    parser.add_argument('--start_year', default=1990, type=int, 
+                        help='''which year to start. Includes start year
+                            ''')
+    parser.add_argument('--end_year', default=2000, type=int, 
+                    help='''which year to start. Excludes end year''')
+
+
     parser.add_argument('-p', type=float, default=0.1, help='the probability parameter')
-    parser.add_argument('-d', type=float, default=0.5,  help='the dose parameter')
-    parser.add_argument('-b', type=float, default=0.5, help='threshold parameter')
-    parser.add_argument('-i', type=int, default=100, help='number of iterations')
+    parser.add_argument('-d', type=float, default=1.0,  help='the dose parameter')
+    parser.add_argument('-t', type=float, default=1.0, help='threshold parameter')
+    
+
+    parser.add_argument('-i', type=int, default=1000, help='number of iterations')
+    parser.add_argument('-n', type=int, default=30, help='number of network generation')
     parser.add_argument('-r', action='store_true', default=False, help='is it real schedule?')
     
     args = parser.parse_args()

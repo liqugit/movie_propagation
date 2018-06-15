@@ -26,7 +26,6 @@ from parser.support import ROLES, CREDITS
 from parser.my_mongo_db_login import DB_LOGIN_INFO
 import parser.support as support
 import network.shift_graph_maker as sgm
-
 def main(args):
     '''
     Produces a shift graph.
@@ -53,6 +52,8 @@ def main(args):
     #read movies during the period of interest
     movies_period = all_movies[(all_movies.year >= start_year) & (all_movies.year < end_year)]
     for i in range(shuffle):
+        if i == 0:
+            movies_period = movies_period.sort_values('year')
         if i != 0:
             movies_period = movies_period.sample(frac=1).sort_values('year')
         G = sgm.build_temporal_network(movies_period, belief_type, T, False)#, opt.belief_type, opt.belief_threshold, plot_graph = opt.visualize)

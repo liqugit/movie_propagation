@@ -42,6 +42,7 @@ class Producers(object):
         self.belief = None
         self.status = None
         self.role = [] #role of the producers, if the role has changed each movie
+        self.gender = None #gender of the producers, 0: male, 1: female
         self.movie_ids = []
 
     def instantiate_belief(self, belief_type, b_threshold, seeds):
@@ -69,7 +70,7 @@ class Producers(object):
         elif belief_type=='apriori':
             pass
         else:
-            m = "I do not recognize the method of: %s, to instantiate the belief"
+            m = "I do not recognize the method of: {}, to instantiate the belief".format(belief_type)
             gerr.generic_error_handler(message=m)
 
 class Movies(object):
@@ -89,7 +90,38 @@ class ComplexEncoder(json.JSONEncoder):
 ## Generate attributes
 ##########################
 
-def make_attribute_list(df_raw, belief_type, belief_threshold=1.0):
+def generate_seeds(df, num_seeds=2):
+    """
+    generate seed adopters based on the first person to come around
+    """
+    first_producers = [p[0] for p in df.producers.iloc[0]]
+
+    # number of seeds are smaller than first participating producers
+    if len(first_producers) >= num_seeds:
+        seeds = random.sample(first_producers,num_seeds)
+    else:
+        i = 1
+        seeds = first_producers
+        while len(first_producers) < num_seeds:
+            new_producers = [p[0] for p in df.producers.iloc[i]]
+            new_seed = random.choice(new_producers)
+            if new_seed not in first_producers:
+                first_producers.append(new_seed)
+    return seeds
+
+def generate_gender_seeds(df_gender, gender='female'):
+    """
+    Assume all members of a gender are seeds:
+    df_gender is dataframe that has producer ids and their gender
+    gender = 'male', 'female'
+    """
+    valid = {'male', 'female'}
+    if gender not in valid:
+        raise ValueError("`gender` must be one of: {}".format(", ".join(valid)))
+
+    return df_gender[df_gender.gender == gender]._id.tolist()
+
+def make_attribute_list(df_raw, seeds, belief_type, belief_threshold=1.0):
     """
     Making attribute dictionary: Shifts and Doctors
     Input:
@@ -107,16 +139,6 @@ def make_attribute_list(df_raw, belief_type, belief_threshold=1.0):
     years = []
     #Start of experiment date
     exp_start_year = df['year'].iloc[0]
-    seeds = []
-    first_producers = [p[0] for p in df.producers.iloc[0]]
-    #check for movies that have only one producer
-    if len(first_producers) == 1:
-        seeds = first_producers
-        second_producers = [p[0] for p in df.producers.iloc[1]]
-        seeds.append(random.choice(second_producers))
-    else:
-        seeds =  random.sample(first_producers, 2)#first 2 producers
-    
 
     #get shifts as class
     for i, row in df.iterrows():
@@ -133,12 +155,6 @@ def make_attribute_list(df_raw, belief_type, belief_threshold=1.0):
         years.append(movie.year)
         movies.append(movie)
         
-        # self.node_ID = None        #Last name
-        # self.type = 'P'
-        # self.belief = None
-        # self.status = None
-        # self.role = [] #role of the producers, if the role has changed each movie
-        # self.movie_ids = []
 
         for p, role in row['producers']:
             #instiantiate producer if the producer is not already in the systme
@@ -151,6 +167,11 @@ def make_attribute_list(df_raw, belief_type, belief_threshold=1.0):
                 producer.movie_ids.append(movie_id)
                 producer_ids.append(p)
                 producers.append(producer)
+                #assign gender, if in seeds, 1 (female), not in seeds, 0 (male)
+                if p in seeds:
+                    producer.gender=1
+                else:
+                    producer.gender=0
             else:
                 #add the movie
                 for p_class in producers:
@@ -161,7 +182,7 @@ def make_attribute_list(df_raw, belief_type, belief_threshold=1.0):
 #########################
 #### Make schedules  ####
 #########################
-def build_temporal_network(df_data, belief_type, b_threshold=1.0, plot_graph = False):
+def build_temporal_network(df_data, seeds, belief_type, b_threshold=1.0, plot_graph = False):
     """
     Create network between doctors and shifts
     input:
@@ -174,26 +195,29 @@ def build_temporal_network(df_data, belief_type, b_threshold=1.0, plot_graph = F
     """
     #Generate attributes for physicians and shifts
 
-    movies, producers = make_attribute_list(df_data, belief_type, b_threshold)
+    movies, producers = make_attribute_list(df_data, seeds, belief_type, b_threshold)
 
     G = nx.Graph()
     # Add nodes - movies:
+    _id = 1 #make the movie node name increasing from 0, because each shuffle needs to have consistant order
     for key in movies:
-        att_dict = {'node_type': key.type, 'title': key.title, \
+        att_dict = {'movie_id':key.node_ID, 'node_type': key.type, 'title': key.title, \
                     'producers': key.producers, 'year' : int(key.year)}
 
-        G.add_node(key.node_ID, **att_dict)
+        G.add_node(_id, **att_dict)
+        _id += 1
+
     # Add nodes - producers:
     for key in producers:
-        att_dict = {'node_type': key.type,'belief' : key.belief, \
-                    'movies' : key.movie_ids, 'roles': key.role}
+        att_dict = {'node_type': key.type,'belief' : key.belief, 'status':key.status,\
+                    'movies' : key.movie_ids, 'roles': key.role, 'gender':key.gender}
         G.add_node(key.node_ID, **att_dict)
 
     # Add edges - between movies and producers
     # Look Here to see the edge connection 
     for node1 in G.nodes():
         if G.node[node1]['node_type'] =='M':
-            movie = node1
+            movie = G.node[node1]['movie_id']
             for node2 in G.nodes():
                 if G.node[node2]['node_type'] == 'P':
                     movies = G.node[node2]['movies']

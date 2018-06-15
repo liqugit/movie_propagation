@@ -12,10 +12,10 @@ from copy import deepcopy
 import sys
 import os
 
-src_dir = os.path.abspath(os.path.join(os.pardir, 'src'))
+src_dir = os.path.abspath(os.path.join(os.pardir, os.pardir, 'src'))
 sys.path[0] = src_dir
-from support import ROLES, CREDITS
-from my_mongo_db_login import DB_LOGIN_INFO
+from parser.support import ROLES, CREDITS
+from parser.my_mongo_db_login import DB_LOGIN_INFO
 
 
 def update_career(year, career_summary):

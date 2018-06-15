@@ -41,7 +41,7 @@ import network.shift_graph_maker as sgm
 
 #############Functions#########################3
 
-def calculate_belief(agent_i, agent_j, shift_length, probability, dose, threshold, weight=1):
+def calculate_belief(agent_i, agent_j, probability, dose, threshold, weight=1):
     '''
     Calculate the change in belief values for the two agents
     Input:
@@ -59,26 +59,25 @@ def calculate_belief(agent_i, agent_j, shift_length, probability, dose, threshol
     #both non adopters
     belief_i = agent_i['belief']
     belief_j = agent_j['belief']
-    for i in range(shift_length):
-        prob_inf = random.random() #probability of getting infected
-        # prob_imm = random.random() #probability of
-        #i adopter, j non adopter
-        if belief_i >= threshold and belief_j < threshold:
-            #gets infected with probability 
-            if prob_inf <= probability:
-                belief_j += w*dose
-        #j = adopter, i = non-adopter
-        elif belief_i < threshold and belief_j >= threshold:
-            #gets infected with probability 
-            if prob_inf <= probability:
-                belief_i += w * dose
+    prob_inf = random.random() #probability of getting infected
+    # prob_imm = random.random() #probability of
+    #i adopter, j non adopter
+    if belief_i >= threshold and belief_j < threshold:
+        #gets infected with probability 
+        if prob_inf <= probability:
+            belief_j += w*dose
+    #j = adopter, i = non-adopter
+    elif belief_i < threshold and belief_j >= threshold:
+        #gets infected with probability 
+        if prob_inf <= probability:
+            belief_i += w * dose
 
     belief_i = gen.limit_belief(belief_i)
     belief_j = gen.limit_belief(belief_j)
     
     return belief_i, belief_j
     
-def contagion_belief_propagation_temporal_network(G, prob, dose, threshold):
+def contagion_belief_propagation_temporal_network(G, prob, dose, threshold, interaction=20):
     """
     Runs the dynamics for the persusaion model on the shift network
     Input:
@@ -90,65 +89,62 @@ def contagion_belief_propagation_temporal_network(G, prob, dose, threshold):
         adopter_history - list of paired datapoints (day, number adopters)
     """
     #Find the first shift date (project start date)
-    prj_start_date = sorted([G.node[n]['start_date'] for n in G.nodes() \
-                                if G.node[n]['node_type']=='S'])[0]
+    start_year = sorted([G.node[n]['year'] for n in G.nodes() \
+                                if G.node[n]['node_type']=='M'])[0]
 
-    #Make the shift nodes dictionary (shift_order: node id)
-    shift_nodes = [[G.node[n]['shift_order'], n] for n in G.nodes() if G.node[n]['node_type']=='S']
-    shift_nodes.sort(key=itemgetter(0, 1))
+    #Make the movie nodes list of list (node_id, movie_id)
+    movie_nodes = [[n, G.node[n]['movie_id']] for n in G.nodes() if G.node[n]['node_type']=='M']
+    movie_nodes.sort(key=itemgetter(0, 1))
 
     #print shift_nodes
     #print '---------------'
 
-    #Get the phys node ids
-    phys_node_ids = [n for n in G.nodes() if G.node[n]['node_type']=='D']
+    #Get the producer node ids
+    producer_node_ids = [n for n in G.nodes() if G.node[n]['node_type']=='P']
 
     #Doctor Adopters, node ids
-    adopters = [n for n in phys_node_ids if G.node[n]['status'] == 'Adopter']
+    adopters = [n for n in producer_node_ids if G.node[n]['status'] == 'Adopter']
 
     #Adopter dictionary and their time points: {time:#of adopters}
-    adopter_history = [[0, len(adopters)]]
-
+    adopter_history = [[0, start_year, len(adopters)]]
     #print 'START---->'
-    #Iterate through the shifts
-    #for shift_order in sorted(shift_nodes.keys()):
-    #Get the list of weekends with team 2 with same fellows
-    T3_weekends = gen.find_3team_weekends(G)
-    for shift_order, shift_id in shift_nodes:
-        #Identify the shift node
-        shift_node = G.node[shift_id]
-    #     print ('Shift order', G.node[shift_id]['shift_order'])
-    #     print ('Shift length', shift_node['days'])
-        #Iterate through pairs of doctors
-        #Any one shift node should only have two doctors, but this is generalized for the future
-        doctor_ids = G.neighbors(shift_id)
-        for doc1, doc2 in combinations(doctor_ids, 2):
-            #Calculate the new belief values
-            if shift_node['days'] == 2 and shift_id not in T3_weekends:
-                shift_length = 1
-            else:
-                shift_length = shift_node['days']
-            # before1, before2 = G.node[doc1]['belief'], G.node[doc2]['belief']
-            b1, b2 = calculate_belief(G.node[doc1], G.node[doc2], shift_length, prob, dose,  threshold )
-            # after1, after2 = G.node[doc1]['belief'], G.node[doc2]['belief']
-
-            G.node[doc1]['belief'] = b1
-            G.node[doc2]['belief'] = b2
-            #Check to see who is an adopter
-            G = gen.update_adoption_status(G, phys_node_ids, threshold)
-
+    #Iterate through the movies
+    #Get the list of moives in order
+    for movie_order, movie_id in movie_nodes:
+        year = G.node[movie_order]['year']
+        #Identify the movie node
+        movie_node = G.node[movie_order]
+        #Iterate through producer
+        #If any of the producer in the group is an adopter, she will influce everyone
+        movie_producer_ids = list(G.neighbors(movie_order))
+        movie_adopters = [x for x in movie_producer_ids if G.node[x]['status'] == 'Adopter']
+        movie_nonadopters = [x for x in movie_producer_ids if G.node[x]['status'] == 'NonAdopter']
+        i = 0
+        if any(movie_adopters): #if any of the producers in the movie is an adopter:
+            while i < interaction and movie_nonadopters:
+                adopter = random.choice(movie_adopters) #choose random adopters from the movie producers
+                nonadopter = random.choice(movie_nonadopters) #choose random non adopter from ovie producers
+                b_a, b_na = calculate_belief(G.node[adopter], G.node[nonadopter], prob, dose, threshold)
+                G.node[adopter]['belief'] = b_a
+                G.node[nonadopter]['belief'] = b_na
+                #update producer status
+                G = gen.update_adoption_status(G, producer_node_ids, threshold)
+                #update movie adopter and movie non adopter
+                movie_adopters = [x for x in movie_producer_ids if G.node[x]['status'] == 'Adopter']
+                movie_nonadopters = [x for x in movie_producer_ids if G.node[x]['status'] == 'NonAdopter']
+                i += 1
         #Calculate the number of adopters
-        adopters = [n for n in phys_node_ids if (G.node[n]['status'] == 'Adopter')]# and (G.node[n]['doc_type'] == 'A')]
-        #Calculate the day, make it list at the midpoint of the shift
-        day_count = (shift_node['start_date'] - prj_start_date).days + ceil(shift_node['days']/2)
+        adopters = [n for n in producer_node_ids if (G.node[n]['status'] == 'Adopter')]# and (G.node[n]['doc_type'] == 'A')]
+        #Calculate the order of the movie 1
+        movie_count = movie_order
         # print(shift_node['start_date'], day_count, len(adopters))
-        adopter_history.append([day_count, len(adopters)])
+        adopter_history.append([movie_count, year, len(adopters)])
     #get the end date
-    final_numeric_day = (shift_node['start_date'] - prj_start_date).days + shift_node['days']
+    final_year = year
     #Backfill the missing days
-    adopter_history = np.array(gen.backfill_dates(adopter_history, end_date = final_numeric_day))
+    # adopter_history = np.array(gen.backfill_dates(adopter_history, end_date = final_year))
 
-    return adopter_history
+    return np.array(adopter_history)
 
 def contagion_synchronous_belief_propagation_projected_network(G, prob, dose, threshold, weight_type, time_limit = 10000):
     """
