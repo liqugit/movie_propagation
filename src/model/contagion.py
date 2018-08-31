@@ -31,6 +31,7 @@ import random
 from copy import deepcopy
 import numpy as np
 import networkx as nx
+import pandas as pd
 #from dateutil import parse
 
 #Local
@@ -146,6 +147,104 @@ def contagion_belief_propagation_temporal_network(G, prob, dose, threshold, inte
 
     return np.array(adopter_history)
 
+
+def contagion_sequential_projected_network(G, step, interval, prob, dose, threshold, iterations=20):
+    """
+    Sequential belief update of contagion
+    input:
+        G - network of only producers connected by movies
+        step - int, number of movies in the G block
+        interval - pandas object interval (start_year, end_year) of the aggregation block
+        prob, dose, threshold, contagion model parameters 
+        iterations - how many iterations I will use for so called one 'step' of belief update
+    output:
+        G - updated G
+        adopter_history - number of adopter increase over the steps
+    """
+    G = G.copy()
+    #get the initial adopters
+    adopters = [n for n in G.nodes() if G.node[n]['status'] == 'Adopter']
+    adopter_history = [[(interval.left, interval.right),0, len(adopters)]]
+
+
+    for step in range(step): #one movie is noe step
+        i = 0
+        #chose a random node to start
+        adopter = random.choice(adopters)
+        neighbors = list(G.neighbors(adopter))
+        nonadopter_neighbors = [x for x in neighbors if G.node[x]['status']=='NonAdopter']
+        while i < iterations and nonadopter_neighbors:
+            #choose non adopter from neighbors
+            nonadopter = random.choice(nonadopter_neighbors)
+            b_a, b_na = calculate_belief(G.node[adopter], G.node[nonadopter], prob, dose, threshold)
+            G.node[adopter]['belief'] = b_a
+            G.node[nonadopter]['belief'] = b_na
+            #update network status
+            G = gen.update_adoption_status(G, G.nodes(), threshold)
+            #get adopters from the neighbors
+            adopter_neighbors = [x for x in neighbors if G.node[x]['status']=='Adopter']
+            if adopter_neighbors != []:
+                adopter = random.choice(adopter_neighbors)
+            nonadopter_neighbors = [x for x in neighbors if G.node[x]['status']=='NonAdopter']
+            neighbors = list(G.neighbors(adopter))
+            i += 1
+        adopters = [n for n in G.nodes() if (G.node[n]['status'] == 'Adopter')]
+        adopter_history.append([(interval.left, interval.right),step+1, len(adopters)])
+    return G, np.array(adopter_history)
+
+def cumulative_adopters_projected_network_sequential(df_raw, interval, seeds, belief_type, p, d, threshold):
+    """
+    Calculate cumulative of projected network over time
+    input
+        df_raw - df data with movies as rows
+        interval - interval of aggregation
+        seeds - initial adopters
+    """
+    start_year = df_raw.year.iloc[0] - 1
+    end_year = df_raw.year.iloc[-1] + 1
+    grouped_by_year = df_raw.groupby(pd.cut(df_raw['year'], np.arange(start_year, end_year, interval)))
+    
+    #make dictionary that keeps track of belief scale
+    total_nodes = list(set([i[0] for sublist in df_raw.producers.tolist() for i in sublist]))
+    belief_dict = {n:1 if n in seeds else 0 for n in total_nodes}
+    
+    existing_adopters = list(set(seeds))
+    total_adopter_history = []
+    total_steps = 0
+    for interval, df in grouped_by_year:
+        #make network
+        G = sgm.build_projected_network(df, seeds, belief_type, threshold)
+        #update beliefs in new G for the nodes that were already been in the system
+        for n in G.nodes():
+            G.node[n]['belief'] = belief_dict[n]
+        #update adoption status
+        G = gen.update_adoption_status(G, G.nodes(), threshold)
+        #calculate adopter
+        G_update, adopter_history = contagion_sequential_projected_network(G, len(df), interval, p, d, threshold)
+        
+        #calculating adopters that are in the system, but was not in G
+        adopter_update = [n for n in G_update.nodes() if G_update.node[n]['status']=='Adopter'] 
+        adopters_not_in_G = [k for k in belief_dict.keys() if (belief_dict[k] >= threshold) and (k not in adopter_update)]
+        #add adopters that are not in the sub G but are actually in the system
+        adopter_history[:,2] += len(adopters_not_in_G)
+
+        if total_adopter_history == []:
+            total_adopter_history = adopter_history    
+        else:
+            #add the dates
+            adopter_history[:,1] += (len(total_adopter_history)-1)            
+            total_adopter_history = np.append(total_adopter_history, adopter_history[1:], axis=0)
+        #update the belief dictionary
+        for k in G_update.nodes():
+            belief_dict[k] = G_update.node[k]['belief']
+        
+    return total_adopter_history
+
+#################################################################################################################################
+#################################################################################################################################
+#################################################################################################################################
+#################################################################################################################################
+
 def contagion_synchronous_belief_propagation_projected_network(G, prob, dose, threshold, weight_type, time_limit = 10000):
     """
     Objective: Synchronous belief updates of the projecte network, unweighted network
@@ -192,68 +291,6 @@ def contagion_synchronous_belief_propagation_projected_network(G, prob, dose, th
     return G, np.array(adopter_history)
 
 
-def contagion_sequential_belief_propagation_projected_network(G, prob, dose, threshold, weight_type='none', weight_choice='none', time_limit=10000):
-    """
-    Objective: Random sequential belief updates of the projecte network, unweighted network
-    Input: 
-        G - NX graph of doctors, static
-        prob - probability of infection
-        dose - dosage of infection
-        recovery - recovery
-        threshold - threshold for being infected
-        weight_type - 'none', shift', 'days', which attribute to use as weight
-        weight_choice - 'none', neighbor', 'influence', how to use weight as 
-    Output:
-        adopter_list - list of adopters by day
-    """
-    adopters = [n for n in G.nodes() if G.node[n]['status'] == 'Adopter']
-    adopter_history = [[0, len(adopters)]]
-    #define the weight that will be used for the network
-    G = calculate_weight(G, weight_type)
-    try:
-        init_node1, init_node2 = random.sample(adopters, 2) #choose random node to start
-    except ValueError:
-        init_node1, init_node2 = random.sample(G.nodes(),2)
-    t = 1 
-    w1, w2 = 1, 1
-    while t < time_limit:
-        #make list of neighbors, depending on the number of times they meet 'weight'
-        w1 -= 1
-        w2 -= 1
-        if weight_choice == 'influence':
-            if w1 == 0:
-                next_node1 = choose_neighbor(G, init_node1, weight_choice) 
-                w1 = G.edge[init_node1][next_node1]['weight']
-            if w2  == 0:
-                next_node2 = choose_neighbor(G, init_node2, weight_choice)
-                w2 = G.edge[init_node2][next_node2]['weight']         
-        else:
-            #if we are not looking for influence size, we only care about which neighbor we choose
-            next_node1 = choose_neighbor(G, init_node1, weight_choice)
-            next_node2 = choose_neighbor(G, init_node2, weight_choice)
-        #update belif for two teams
-        b11,b12 = calculate_belief(G.node[init_node1], G.node[next_node1], 1, prob, dose, threshold)
-        b21,b22 = calculate_belief(G.node[init_node2], G.node[next_node2], 1, prob, dose, threshold)
-        G.node[init_node1]['belief'] = b11
-        G.node[next_node1]['belief'] = b12
-        G.node[init_node2]['belief'] = b21
-        G.node[next_node2]['belief'] = b22
-
-        #update adopter status
-        G = gen.update_adoption_status(G, G.nodes(), threshold)
-        adopters = [n for n in G.nodes() if G.node[n]['status']=='Adopter']
-        adopter_history.append([t, len(adopters)])
-        #change the nodes, calculating influence size
-        #change the neighbor if the influence is over.  
-        if w1 == 0:
-            init_node1 = next_node1
-        if w2 == 0:
-            init_node2 = next_node2
-        #one day passes
-        t+=1
-    adopter_history = gen.backfill_dates(adopter_history, end_date = time_limit)
-    adopter_history = np.delete(np.array(adopter_history), (-1), axis=0)
-    return G, np.array(adopter_history)
 
 def calculate_weight(G, weight_type):
     """
@@ -275,8 +312,6 @@ def calculate_weight(G, weight_type):
             weight = 1
         G.edge[node1][node2]['weight'] = weight
     return G
-
-
 
 def choose_neighbor(G, node, weight_choice):
     """
@@ -352,51 +387,6 @@ def cumulative_adopters_over_time_projected_network_synchronous_update(physician
         adopter_history[:,0] += add_up_date
         adopter_history[:,1] += add_adopters
         entire_adopter_history = np.append(entire_adopter_history, adopter_history, 0)
-    return entire_adopter_history
-
-def cumulative_adopters_over_time_projected_network_sequential_update(physician_sched_dict, belief_type, p, d, b, weight_type, weight_choice, time_limit=10000):
-    """
-    When the schedule is cut into months, get the cumulative adopters over time fo`r the projected network. 
-    Random walk - when weighted random walk is weighed on number of shifts and the influence by number of days
-    input:
-        physcian_sched_dict: cut up sched. dictionary of dfs
-        belieft_type: 'empirical' for the contagion model
-        p, d, b - contagion model parameters
-        weight - true or false
-    output:
-        entire_adopter_history: numpy array of cumulative adopters [days, adopters]
-    """
-    entire_adopter_history = np.empty([0,2],dtype=int)
-    start_date = physician_sched_dict[0].Date.iloc[0]
-    belief_dict = {}
-    cumulative_adopters = [] #account for addional adopters
-    for key in sorted(physician_sched_dict.keys()):
-        #df for G
-        df = physician_sched_dict[key]
-        #start and end date 
-        block_start_date = df['Date'].iloc[0] 
-        block_end_date = df['Date'].iloc[-1]
-        #set the time limit for iteration
-        time_limit = (block_end_date - block_start_date).days + df['Days'].iloc[-1]
-        add_up_date = (block_start_date-start_date).days
-        #build G
-        G = sgm.build_projected_network(df, belief_type, b)
-        #update beliefs with exisitng 
-        G = update_beliefs_for_existing_nodes(G, belief_dict, b)
-        add_adopters = len([x for x in cumulative_adopters if x not in G.nodes()])
-        G, adopter_history = contagion_sequential_belief_propagation_projected_network(G, p, d, b, weight_type, weight_choice, time_limit)
-        
-        #get the beliefs for new G
-        belief_dict.update({n:G.node[n]['belief'] for n in G.nodes()})
-        #get the adopters for new G
-        new_adopters = [n for n in G.nodes() if G.node[n]['status'] == 'Adopter']
-        cumulative_adopters.extend(new_adopters)
-        cumulative_adopters = list(set(cumulative_adopters))
-        #adjust for the date and additionarl adopters
-        adopter_history[:,0] += add_up_date
-        adopter_history[:,1] += add_adopters
-        entire_adopter_history = np.append(entire_adopter_history, adopter_history, 0)
-
     return entire_adopter_history
 
 def update_beliefs_for_existing_nodes(G, belief_dict, threshold):

@@ -31,17 +31,17 @@ def limit_belief(belief_value):
         belief_value = 1.0
     return belief_value
 
-def update_adoption_status(G, phys_nodes, threshold):
+def update_adoption_status(G, producer_nodes, threshold):
     '''
     Updates teh adoption status on physicians based on the threshold parameter
     input:
         G - shift graph
-        phys_nodes - list of node ids for the physicians
+        producer_nodes - list of node ids for the physicians
         threshold - the adoption threshold
     Output:
         G - shift graph
     '''
-    for pnode in phys_nodes:
+    for pnode in producer_nodes:
         #If the belief exceeds the threshold then the node becomes an adopter
         if G.node[pnode]['belief'] >= threshold:
             G.node[pnode]['status'] = 'Adopter'

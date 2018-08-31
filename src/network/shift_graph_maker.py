@@ -21,10 +21,7 @@ import os
 from copy import deepcopy
 import graph_tool.all as gt
 from collections import Counter, defaultdict
-
-#Local
-
-
+from itertools import combinations
 
 ###Local###
 src_dir = os.path.abspath(os.path.join(os.pardir, os.pardir,'src'))
@@ -119,8 +116,7 @@ def generate_gender_seeds(df_gender, gender='female'):
     if gender not in valid:
         raise ValueError("`gender` must be one of: {}".format(", ".join(valid)))
 
-    return df_gender[df_gender.gender == gender]._id.tolist()
-
+    return list(set(df_gender[df_gender.gender == gender]._id.tolist()))
 def make_attribute_list(df_raw, seeds, belief_type, belief_threshold=1.0):
     """
     Making attribute dictionary: Shifts and Doctors
@@ -132,7 +128,8 @@ def make_attribute_list(df_raw, seeds, belief_type, belief_threshold=1.0):
         movies - list of movie class (NODE)
         producers - list of producer classes (NODE)
     """
-    df = df_raw.copy(deep=True).dropna()
+    #drop movies if there are no producers
+    df = df_raw.copy(deep=True).dropna(subset=['producers'])
     producer_ids = [] #producer id list
     producers = [] #producer class list
     movies = [] #movie class list
@@ -151,19 +148,19 @@ def make_attribute_list(df_raw, seeds, belief_type, belief_threshold=1.0):
         movie.type = 'M'
         movie.producers = movie_producers
         movie.year = row['year']
-        movie.title = row.title
+        movie.title = row['_id']
         years.append(movie.year)
         movies.append(movie)
         
 
-        for p, role in row['producers']:
+        for p in row['producers']:
             #instiantiate producer if the producer is not already in the systme
             if p not in producer_ids:
                 producer = Producers()
                 producer.node_ID = p
                 producer.instantiate_belief(belief_type, belief_threshold, seeds)
                 producer.type='P'
-                producer.role.append([role, movie_id, movie.year])
+                producer.role.append([movie_id, movie.year])
                 producer.movie_ids.append(movie_id)
                 producer_ids.append(p)
                 producers.append(producer)
@@ -176,9 +173,69 @@ def make_attribute_list(df_raw, seeds, belief_type, belief_threshold=1.0):
                 #add the movie
                 for p_class in producers:
                     if p_class.node_ID == p:
-                        p_class.role.append([role, movie_id, movie.year])
+                        p_class.role.append([movie_id, movie.year])
                         p_class.movie_ids.append(movie_id)
     return movies, producers
+
+# def make_attribute_list(df_raw, seeds, belief_type, belief_threshold=1.0):
+#     """
+#     Making attribute dictionary: Shifts and Doctors
+#     Input:
+#         df_raw - DataFrame with freshly read data
+#         belief_type - string, what kind of belief 'empirical', 'empirical-random', 'apirori' + to be added
+#         belief_threshold - float 0-1
+#     Output:
+#         movies - list of movie class (NODE)
+#         producers - list of producer classes (NODE)
+#     """
+#     #drop movies if there are no producers
+#     df = df_raw.copy(deep=True).dropna(subset=['producers'])
+#     producer_ids = [] #producer id list
+#     producers = [] #producer class list
+#     movies = [] #movie class list
+#     years = []
+#     #Start of experiment date
+#     exp_start_year = df['year'].iloc[0]
+
+#     #get shifts as class
+#     for i, row in df.iterrows():
+#         #get list of producers for the movie
+#         movie_producers = [i[0] for i in row['producers']] #get only producers ids, get rid of producer roles
+#         #add movies, assume that there are no duplicate movie rows
+#         movie = Movies()
+#         movie_id = row['_id']
+#         movie.node_ID = movie_id
+#         movie.type = 'M'
+#         movie.producers = movie_producers
+#         movie.year = row['year']
+#         movie.title = row['_id']
+#         years.append(movie.year)
+#         movies.append(movie)
+        
+
+#         for p, role in row['producers']:
+#             #instiantiate producer if the producer is not already in the systme
+#             if p not in producer_ids:
+#                 producer = Producers()
+#                 producer.node_ID = p
+#                 producer.instantiate_belief(belief_type, belief_threshold, seeds)
+#                 producer.type='P'
+#                 producer.role.append([role, movie_id, movie.year])
+#                 producer.movie_ids.append(movie_id)
+#                 producer_ids.append(p)
+#                 producers.append(producer)
+#                 #assign gender, if in seeds, 1 (female), not in seeds, 0 (male)
+#                 if p in seeds:
+#                     producer.gender=1
+#                 else:
+#                     producer.gender=0
+#             else:
+#                 #add the movie
+#                 for p_class in producers:
+#                     if p_class.node_ID == p:
+#                         p_class.role.append([role, movie_id, movie.year])
+#                         p_class.movie_ids.append(movie_id)
+#     return movies, producers
 #########################
 #### Make schedules  ####
 #########################
@@ -229,36 +286,35 @@ def build_temporal_network(df_data, seeds, belief_type, b_threshold=1.0, plot_gr
     return G
 
 
-
-
-
-######################## From old code look at 
-def build_projected_network(df, belief_type, b_threshold):
+def build_projected_network(df, seeds, belief_type, threshold):
     """
     Create projected temporal network between doctors and shifts
     input:
         df - DataFrame, shift data without header
+        seeds - list of initial adopters
         belief_type - way to generate initial belief value.
                     choices: empirical, random, apriori
-        b_threshold - belief status threshold. Use to generate the initial adoption state
-        weight - True: make weight network, default is False
+        threshold - belief status threshold. Use to generate the initial adoption state
     output:
         G - NX graph object
     """
-
-    shifts, doctors = make_attribute_list(df, belief_type, b_threshold)
+    movies, producers = make_attribute_list(df, seeds, belief_type, threshold)
 
     G = nx.MultiGraph()
-    for key in doctors:
-        doc_dict = {'doc_type':key.doc_type, 'belief': key.belief, 'shifts':key.shift_order, 'status':key.status}
-        G.add_node(key.node_ID, doc_dict)
+    for key in producers:
+        #build attribute dictionary
+        att_dict = {'node_type':key.type, 'belief':key.belief, 'status':key.status,\
+                    'movies':key.movie_ids, 'roles':key.role, 'gender':key.gender}
+        G.add_node(key.node_ID, **att_dict)
 
-    for key in shifts:
-        subject_id, object_id = key.attendings, key.fellows
-        G.add_edge(subject_id, object_id, days=key.days, date=key.start_date)
-
+    for key in movies:
+        producers = key.producers
+        att_dict = {'movie_id':key.node_ID, 'title':key.title, 'year':int(key.year)}
+        for p1, p2 in combinations(producers, 2):
+            G.add_edge(p1, p2, **att_dict)
     return G
     
+######################## From old code look at 
 def plot_network(G, wfname = '../../result/networks/shift_doctor_network_graph.eps'):
     '''
     Makes a networkx plot fo the network

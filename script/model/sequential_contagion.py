@@ -27,7 +27,6 @@ import random
 import sys
 import os
 from argparse import ArgumentParser
-import pandas as pd
 import numpy as np
 from copy import deepcopy
 import glob
@@ -37,6 +36,7 @@ from os import listdir
 from os.path import isfile, join
 import re
 import json
+import pandas as pd
 #Local
 src_dir = os.path.abspath(os.path.join(os.pardir, os.pardir, 'src'))
 sys.path[0] = src_dir
@@ -57,30 +57,31 @@ def make_filename(directory, network_type, parameter_dict, ver=None):
     output
         save_name - string of save_name
     """
-    valid = {'real', 'synthetic', 'agg_2year', 'agg_3year', 'agg_4year' 'agg_5year'}
+    valid = {'agg_1', 'agg_2', 'agg_3', 'agg_4', 'agg_5'}
     if network_type not in valid:
         network_type = input("network_type must be one of: {}".format(", ".join(valid)))
-    network_dict = {'real':0, 'synthetic':1, 'agg_2year':2, 'agg_3year':3, 'agg_4year':4, 'agg_5year':5}
     i = 0
     if ver==None: #version is none for real network, however, synthetic network will have versions already
         ver = random.randint(10000, 99999)
     #Generate the name
     # file name startw with contagion and the networktype
-    file_name = '_'.join(['contagion', str(network_dict[network_type])])
+    file_name = '_'.join(['contagion', network_type])
     # add parameters
     file_name = '_'.join([file_name, '{p:}_{d:}_{t:}'.format(**parameter_dict)])
     # add verson 
-    file_name_iter = '_'.join([file_name, str(ver), str(i)])
-    file_name_iter = '.'.join([file_name_iter, 'json'])
+    # file_name_iter = '_'.join([file_name, str(ver), str(i)])
+    file_name_iter = '_'.join([file_name, 'ver', str(ver)])
 
+    # file_name_iter = '.'.join([file_name_iter, 'json'])
+
+    # save_name = os.path.abspath(os.path.join(directory, file_name_iter))
+    # while os.path.isfile(save_name):
+    #check to see if the name exists already
+    # file_name_iter = '_'.join([file_name, 'ver', str(ver), str(i)])
+    file_name_iter = '.'.join([file_name_iter, 'json'])
     save_name = os.path.abspath(os.path.join(directory, file_name_iter))
-    while os.path.isfile(save_name):
-        #check to see if the name exists already
-        file_name_iter = '_'.join([file_name, 'ver', str(ver), str(i)])
-        file_name_iter = '.'.join([file_name_iter, 'json'])
-        save_name = os.path.abspath(os.path.join(directory, file_name_iter))
-        i += 1
-    #order of contagion_[sched_type]_[parameters]_ver_[network version]_[iteration of the version].json
+        # i += 1
+    #order of contagion_[network_type]_[parameters]_ver_[network version]_[iteration of the version].json
     return save_name
 
 ###Functions###
@@ -99,6 +100,9 @@ def main(args):
     #year
     start_year = args.start_year #1990
     end_year = args.end_year #2000
+    interval = args.a
+
+
     #Read data
     print('Reading file')
     with open(os.path.abspath(data_file)) as f:
@@ -128,32 +132,33 @@ def main(args):
     print('\t\t Building network')
     print('\t\t Contagion propagation!')
     for i in range(iter_no):
-        G = sgm.build_temporal_network(movies_period, seeds, belief_type, T)
-        adopter_history = contagion.contagion_belief_propagation_temporal_network(G, P, D, T)
+        adopter_history = contagion.cumulative_adopters_projected_network_sequential(movies_period, interval, seeds, belief_type, P, D, T)
         if i == 0:
             print('\t\t Initializing df')
-            df_adopter = pd.DataFrame(adopter_history, columns=['movie_order', 'year', '{}'.format(i)])
-            df_adopter = df_adopter.set_index('movie_order')
-            year_list = adopter_history[:,1]
+            df_adopter = pd.DataFrame(adopter_history, columns=['year', 'movie_order', '{}'.format(i)])
+            df_adopter = df_adopter.set_index(['movie_order'])
+            year_list = adopter_history[:,0]
         else:
             print('\t\t appending df')
-            if np.array_equal(year_list,adopter_history[:,1]):
-                df_adopter['{}'.format(i)] = pd.Series(adopter_history[:, 2], index=adopter_history[:, 0])
+            if np.array_equal(year_list,adopter_history[:,0]):
+                df_adopter['{}'.format(i)] = pd.Series(adopter_history[:, 2], index=adopter_history[:, 1])
             else:
                 m = "years are not matching"
                 gerr.generic_error_handler(message=m)
-        if i % int(iter_no/2): # save half way
+        
+        print(i, int(iter_no/2))
+        if (i != 0) and (i % int(iter_no/2)==0): # save half way
             print('Half way saving')
             param_dict = {'p':P, 'd':D, 't':T}
             formatted_parameters = {k: save.parameter_to_string(v, k) for k, v in param_dict.items()}    
-            save_path = make_filename(result_dir, 'real', formatted_parameters,n)
+            save_path = make_filename(result_dir, 'agg_{}'.format(interval), formatted_parameters,n)
             save.save_file_json(df_adopter, save_path)
 
     print('Saving result')
     param_dict = {'p':P, 'd':D, 't':T}
     formatted_parameters = {k: save.parameter_to_string(v, k) for k, v in param_dict.items()}
     
-    save_path = make_filename(result_dir, 'real', formatted_parameters, n)
+    save_path = make_filename(result_dir, 'agg_{}'.format(interval), formatted_parameters, n)
     save.save_file_json(df_adopter, save_path)
     del df_adopter
 
@@ -181,11 +186,10 @@ if __name__ == '__main__':
     parser.add_argument('-p', type=float, default=0.1, help='the probability parameter')
     parser.add_argument('-d', type=float, default=1.0,  help='the dose parameter')
     parser.add_argument('-t', type=float, default=1.0, help='threshold parameter')
-    
+    parser.add_argument('-a', type=int, default=1, help='number of years to aggregate')
 
-    parser.add_argument('-i', type=int, default=1000, help='number of iterations')
-    parser.add_argument('-n', type=int, default=30, help='number of network generation')
-    parser.add_argument('-r', action='store_true', default=False, help='is it real schedule?')
+    parser.add_argument('-i', type=int, default=500, help='number of iterations')
+    parser.add_argument('-n', type=int, default=20, help='number of network generation')
     
     args = parser.parse_args()
     main(args)

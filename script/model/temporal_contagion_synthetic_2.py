@@ -34,7 +34,7 @@ import glob
 import errno
 import contextlib
 from os import listdir
-from os.path import isfile, join
+from os.path import isfile, join, normpath, basename
 import re
 import json
 #Local
@@ -61,7 +61,6 @@ def make_filename(directory, network_type, parameter_dict, ver=None):
     if network_type not in valid:
         network_type = input("network_type must be one of: {}".format(", ".join(valid)))
     network_dict = {'real':0, 'synthetic':1, 'agg_2year':2, 'agg_3year':3, 'agg_4year':4, 'agg_5year':5}
-    i = 0
     if ver==None: #version is none for real network, however, synthetic network will have versions already
         ver = random.randint(10000, 99999)
     #Generate the name
@@ -70,26 +69,36 @@ def make_filename(directory, network_type, parameter_dict, ver=None):
     # add parameters
     file_name = '_'.join([file_name, '{p:}_{d:}_{t:}'.format(**parameter_dict)])
     # add verson 
-    file_name_iter = '_'.join([file_name, str(ver), str(i)])
+    file_name_iter = '_'.join([file_name, 'ver', str(ver)])
     file_name_iter = '.'.join([file_name_iter, 'json'])
 
     save_name = os.path.abspath(os.path.join(directory, file_name_iter))
-    while os.path.isfile(save_name):
-        #check to see if the name exists already
-        file_name_iter = '_'.join([file_name, 'ver', str(ver), str(i)])
-        file_name_iter = '.'.join([file_name_iter, 'json'])
-        save_name = os.path.abspath(os.path.join(directory, file_name_iter))
-        i += 1
     #order of contagion_[sched_type]_[parameters]_ver_[network version]_[iteration of the version].json
     return save_name
+
+def find_seeds(data_dir, version):
+    """
+    get the network model and find who are the females == seeds
+    """
+    network_model = basename(normpath(data_dir))
+    gender_folder = os.path.abspath(os.path.join(data_dir, os.pardir, 'gender', network_model))
+    gender_file = [join(gender_folder, f) for f in listdir(gender_folder) if isfile(join(gender_folder, f)) and ver in f]
+    if len(gender_file) == 1:
+        gender_file = gender_file[0]
+    else:
+        raise IndexError('the version has duplicate or it does not exist')
+    df_gender = pd.read_json(gender_file, orient='split')
+    seeds = df_gender[df_gender.gender=='female'].producer_id.tolist()
+    return seeds
+
 
 ###Functions###
 def main(args):
     #input file as args[0] transform final_schedule.csv
-    data_file = args.data_dir
+    data_dir = args.data_dir
     result_dir = args.result_dir
 
-    print ('Data_file', data_file)
+    print ('Data_file', data_dir)
     print ('Result_dir', result_dir)
     
     P, D, T = args.p, args.d, args.t
@@ -100,62 +109,60 @@ def main(args):
     start_year = args.start_year #1990
     end_year = args.end_year #2000
     #Read data
-    print('Reading file')
-    with open(os.path.abspath(data_file)) as f:
-        movie_file = f.read()
-        movie_data = json.loads(movie_file)
+    file_list = [join(data_dir, f) for f in listdir(data_dir) if isfile(join(data_dir, f)) and f.endswith('json')]
+    print(file_list)
+    for data_file in file_list:
+        print('Reading file: ', data_file)
+        movie_df = pd.read_json(data_file, orient='split')
+        ver = re.findall(r'\d{6}', data_file)[0]
+        #read seeds
+        network_model =  basename(normpath(data_dir))
+        seeds = find_seeds(network_model, ver)
 
-
-    #make movie data into dataframe
-    role = 'producing'
-    role_key = role + "_gender_percentage"
-    movie_df = support.get_movies_df(role_key)
-    print('Got all_movies')
-    gender_df = support.get_staff_df('producers')[['_id', 'female_count', 'first_movie', 'last_movie', 'gender']]
-    movies_period = movie_df[(movie_df.year >= start_year) & (movie_df.year < end_year)]
-    seeds = sgm.generate_gender_seeds(gender_df)
-    #starting the dynamics
-    print ('Making data with parameter prob: {:.2f}, dose: {:.2f}, threshold: {:.2f}'.format(P, D, T))
+        #make movie data into dataframe
+        movies_period = movie_df[(movie_df.year >= start_year) & (movie_df.year < end_year)]
+        total_producers = list(set([i for sublist in movies_period.producers.tolist() for i in sublist]))
+        #starting the dynamics
+        print ('Making data with parameter prob: {:.2f}, dose: {:.2f}, threshold: {:.2f}'.format(P, D, T))
     
-    # for n in range(gen_no):
-    print('\t Iteration: {}'.format(n))
-    #Build network
-    if n == 0:
-        movies_period = movies_period.sort_values('year')
-    else:
-        movies_period = movies_period.sample(frac=1).sort_values('year')
-    #for the real schedule
-    print('\t\t Building network')
-    print('\t\t Contagion propagation!')
-    for i in range(iter_no):
-        G = sgm.build_temporal_network(movies_period, seeds, belief_type, T)
-        adopter_history = contagion.contagion_belief_propagation_temporal_network(G, P, D, T)
-        if i == 0:
-            print('\t\t Initializing df')
-            df_adopter = pd.DataFrame(adopter_history, columns=['movie_order', 'year', '{}'.format(i)])
-            df_adopter = df_adopter.set_index('movie_order')
-            year_list = adopter_history[:,1]
+        print('\t Iteration: {}'.format(n))
+        #Build network
+        if n == 0:
+            movies_period = movies_period.sort_values('year')
         else:
-            print('\t\t appending df')
-            if np.array_equal(year_list,adopter_history[:,1]):
-                df_adopter['{}'.format(i)] = pd.Series(adopter_history[:, 2], index=adopter_history[:, 0])
+            movies_period = movies_period.sample(frac=1).sort_values('year')
+        #for the real schedule
+        print('\t\t Building network')
+        print('\t\t Contagion propagation!')
+        for i in range(iter_no):
+            G = sgm.build_temporal_network(movies_period, seeds, belief_type, T)
+            adopter_history = contagion.contagion_belief_propagation_temporal_network(G, P, D, T)
+            if i == 0:
+                print('\t\t Initializing df')
+                df_adopter = pd.DataFrame(adopter_history, columns=['movie_order', 'year', '{}'.format(i)])
+                df_adopter = df_adopter.set_index('movie_order')
+                year_list = adopter_history[:,1]
             else:
-                m = "years are not matching"
-                gerr.generic_error_handler(message=m)
-        if i % int(iter_no/2): # save half way
-            print('Half way saving')
-            param_dict = {'p':P, 'd':D, 't':T}
-            formatted_parameters = {k: save.parameter_to_string(v, k) for k, v in param_dict.items()}    
-            save_path = make_filename(result_dir, 'real', formatted_parameters,n)
-            save.save_file_json(df_adopter, save_path)
+                print('\t\t appending df')
+                if np.array_equal(year_list,adopter_history[:,1]):
+                    df_adopter['{}'.format(i)] = pd.Series(adopter_history[:, 2], index=adopter_history[:, 0])
+                else:
+                    m = "years are not matching"
+                    gerr.generic_error_handler(message=m)
+            if i % int(iter_no/2) and i!= 0: # save half way
+                print('Half way saving')
+                param_dict = {'p':P, 'd':D, 't':T}
+                formatted_parameters = {k: save.parameter_to_string(v, k) for k, v in param_dict.items()}    
+                save_path = make_filename(result_dir, 'synthetic', formatted_parameters, '_'.join([ver, str(n)]))
+                save.save_file_json(df_adopter, save_path)
 
-    print('Saving result')
-    param_dict = {'p':P, 'd':D, 't':T}
-    formatted_parameters = {k: save.parameter_to_string(v, k) for k, v in param_dict.items()}
-    
-    save_path = make_filename(result_dir, 'real', formatted_parameters, n)
-    save.save_file_json(df_adopter, save_path)
-    del df_adopter
+        print('Saving result')
+        param_dict = {'p':P, 'd':D, 't':T}
+        formatted_parameters = {k: save.parameter_to_string(v, k) for k, v in param_dict.items()}
+        
+        save_path = make_filename(result_dir, 'synthetic', formatted_parameters, '_'.join([ver, str(n)]))
+        save.save_file_json(df_adopter, save_path)
+        del df_adopter
 
 
 if __name__ == '__main__':
@@ -183,8 +190,8 @@ if __name__ == '__main__':
     parser.add_argument('-t', type=float, default=1.0, help='threshold parameter')
     
 
-    parser.add_argument('-i', type=int, default=1000, help='number of iterations')
-    parser.add_argument('-n', type=int, default=30, help='number of network generation')
+    parser.add_argument('-i', type=int, default=100, help='number of iterations')
+    parser.add_argument('-n', type=int, default=10, help='number of network generation')
     parser.add_argument('-r', action='store_true', default=False, help='is it real schedule?')
     
     args = parser.parse_args()

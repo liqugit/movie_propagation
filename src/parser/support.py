@@ -56,7 +56,7 @@ def load_dataset(dataset):
         raise ValueError("`dataset` must be one of: {}".format(", ".join(valid)))
 
     raw_dir = os.path.abspath(
-        os.path.join(os.pardir, os.pardir, 'data', 'raw_data')
+        os.path.join('/home/projects/movie-network/', 'data', 'raw_data')
     )
     return pd.read_json(os.path.join(raw_dir, dataset + ".json"))
 
