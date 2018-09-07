@@ -51,7 +51,7 @@ def open_movie_data(start_year=1990, end_year=2000):
 	Return:
 		movie_producer_df - dataframe containing info on movie and producers
 	"""
-	with open('/home/projects/movie-network/data/raw_data/movies.json') as f:
+    with open('/home/projects/movie-network/data/raw_data/movies.json') as f:
         movie_file = f.read()
         movie_data = json.loads(movie_file)
     role = 'producing'
