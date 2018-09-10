@@ -177,7 +177,7 @@ def make_version(num_schedules, size=6, nums=string.digits):
     while len(version_list) < num_schedules:
         uid = ''.join(random.choice(nums) for i in range(size))
         if uid not in version_list:
-            version_list.append(ver)
+            version_list.append(uid)
     return version_list
 
 
