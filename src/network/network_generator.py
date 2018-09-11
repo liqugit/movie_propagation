@@ -36,7 +36,6 @@ import gale.general.errors as gerr
 from parser.support import ROLES, CREDITS
 from parser.my_mongo_db_login import DB_LOGIN_INFO
 import parser.support as support
-import network.shift_graph_maker as sgm
 
 
 ### Classes ###
@@ -258,22 +257,22 @@ def assign_team(producers_unique, team_size_list):
     return producer_team
 
 ### synthetic 3 ###
-def get_gaps_gender(df_producers):
+def get_gaps_gender(df_producers, col_name='producer_id'):
     """
     df - dataframe with columns with movie-producer-year-gender
     """
     gap_dict = {}
     for gender, df in df_producers.groupby('gender'):
         gap_dict[gender] = []
-        for p, group in df.groupby('producer_id'):
+        for p, group in df.groupby(col_name):
             group_sorted = group.sort_values('year')
             diff = group_sorted.year.diff().values
             gap_dict[gender].extend(diff[~np.isnan(diff)])
     return gap_dict
 
-def get_gaps(df_producers):
+def get_gaps(df_producers, col_name='producer_id'):
     gap_result = []
-    for p, group in unlistyfied_result_df.groupby('producers'):
+    for p, group in df_producers.groupby(col_name):
         group_sorted = group.sort_values('year')
         diff = group_sorted.year.diff().values
         gap_result.extend(diff[~np.isnan(diff)])
