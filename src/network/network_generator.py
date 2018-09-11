@@ -258,7 +258,7 @@ def assign_team(producers_unique, team_size_list):
     return producer_team
 
 ### synthetic 3 ###
-def get_gaps(df_producers):
+def get_gaps_gender(df_producers):
     """
     df - dataframe with columns with movie-producer-year-gender
     """
@@ -271,6 +271,14 @@ def get_gaps(df_producers):
             gap_dict[gender].extend(diff[~np.isnan(diff)])
     return gap_dict
 
+def get_gaps(df_producers):
+    gap_result = []
+    for p, group in unlistyfied_result_df.groupby('producers'):
+        group_sorted = group.sort_values('year')
+        diff = group_sorted.year.diff().values
+        gap_result.extend(diff[~np.isnan(diff)])
+    return gap_result
+    
 def assign_gaps(movie_dict, gap_dict, years=10):
     """
     assigns gaps list to each producer

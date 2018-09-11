@@ -117,6 +117,8 @@ def generate_gender_seeds(df_gender, gender='female'):
         raise ValueError("`gender` must be one of: {}".format(", ".join(valid)))
 
     return list(set(df_gender[df_gender.gender == gender]._id.tolist()))
+
+#making attributes for synthetic
 def make_attribute_list(df_raw, seeds, belief_type, belief_threshold=1.0):
     """
     Making attribute dictionary: Shifts and Doctors
@@ -177,65 +179,67 @@ def make_attribute_list(df_raw, seeds, belief_type, belief_threshold=1.0):
                         p_class.movie_ids.append(movie_id)
     return movies, producers
 
-# def make_attribute_list(df_raw, seeds, belief_type, belief_threshold=1.0):
-#     """
-#     Making attribute dictionary: Shifts and Doctors
-#     Input:
-#         df_raw - DataFrame with freshly read data
-#         belief_type - string, what kind of belief 'empirical', 'empirical-random', 'apirori' + to be added
-#         belief_threshold - float 0-1
-#     Output:
-#         movies - list of movie class (NODE)
-#         producers - list of producer classes (NODE)
-#     """
-#     #drop movies if there are no producers
-#     df = df_raw.copy(deep=True).dropna(subset=['producers'])
-#     producer_ids = [] #producer id list
-#     producers = [] #producer class list
-#     movies = [] #movie class list
-#     years = []
-#     #Start of experiment date
-#     exp_start_year = df['year'].iloc[0]
+#making attributes for real network
+def make_attribute_list_real(df_raw, seeds, belief_type, belief_threshold=1.0):
+    """
+    Making attribute dictionary: Shifts and Doctors
+    Input:
+        df_raw - DataFrame with freshly read data
+        belief_type - string, what kind of belief 'empirical', 'empirical-random', 'apirori' + to be added
+        belief_threshold - float 0-1
+    Output:
+        movies - list of movie class (NODE)
+        producers - list of producer classes (NODE)
+    """
+    #drop movies if there are no producers
+    df = df_raw.copy(deep=True).dropna(subset=['producers'])
+    producer_ids = [] #producer id list
+    producers = [] #producer class list
+    movies = [] #movie class list
+    years = []
+    #Start of experiment date
+    exp_start_year = df['year'].iloc[0]
 
-#     #get shifts as class
-#     for i, row in df.iterrows():
-#         #get list of producers for the movie
-#         movie_producers = [i[0] for i in row['producers']] #get only producers ids, get rid of producer roles
-#         #add movies, assume that there are no duplicate movie rows
-#         movie = Movies()
-#         movie_id = row['_id']
-#         movie.node_ID = movie_id
-#         movie.type = 'M'
-#         movie.producers = movie_producers
-#         movie.year = row['year']
-#         movie.title = row['_id']
-#         years.append(movie.year)
-#         movies.append(movie)
+    #get shifts as class
+    for i, row in df.iterrows():
+        #get list of producers for the movie
+        movie_producers = [i[0] for i in row['producers']] #get only producers ids, get rid of producer roles
+        #add movies, assume that there are no duplicate movie rows
+        movie = Movies()
+        movie_id = row['_id']
+        movie.node_ID = movie_id
+        movie.type = 'M'
+        movie.producers = movie_producers
+        movie.year = row['year']
+        movie.title = row['_id']
+        years.append(movie.year)
+        movies.append(movie)
         
 
-#         for p, role in row['producers']:
-#             #instiantiate producer if the producer is not already in the systme
-#             if p not in producer_ids:
-#                 producer = Producers()
-#                 producer.node_ID = p
-#                 producer.instantiate_belief(belief_type, belief_threshold, seeds)
-#                 producer.type='P'
-#                 producer.role.append([role, movie_id, movie.year])
-#                 producer.movie_ids.append(movie_id)
-#                 producer_ids.append(p)
-#                 producers.append(producer)
-#                 #assign gender, if in seeds, 1 (female), not in seeds, 0 (male)
-#                 if p in seeds:
-#                     producer.gender=1
-#                 else:
-#                     producer.gender=0
-#             else:
-#                 #add the movie
-#                 for p_class in producers:
-#                     if p_class.node_ID == p:
-#                         p_class.role.append([role, movie_id, movie.year])
-#                         p_class.movie_ids.append(movie_id)
-#     return movies, producers
+        for p, role in row['producers']:
+            #instiantiate producer if the producer is not already in the systme
+            if p not in producer_ids:
+                producer = Producers()
+                producer.node_ID = p
+                producer.instantiate_belief(belief_type, belief_threshold, seeds)
+                producer.type='P'
+                producer.role.append([role, movie_id, movie.year])
+                producer.movie_ids.append(movie_id)
+                producer_ids.append(p)
+                producers.append(producer)
+                #assign gender, if in seeds, 1 (female), not in seeds, 0 (male)
+                if p in seeds:
+                    producer.gender=1
+                else:
+                    producer.gender=0
+            else:
+                #add the movie
+                for p_class in producers:
+                    if p_class.node_ID == p:
+                        p_class.role.append([role, movie_id, movie.year])
+                        p_class.movie_ids.append(movie_id)
+    return movies, producers
+
 #########################
 #### Make schedules  ####
 #########################
@@ -384,9 +388,6 @@ def save_network(G, sched_type, sched_ver, result_dir = "../../result/networks/"
     wfname = os.path.join(result_dir, file_name)
     with open(wfname, 'w') as outfile:
         json.dump(new_G.nodes(data=True), outfile, cls=ComplexEncoder)
-
-
-
 
 
 
