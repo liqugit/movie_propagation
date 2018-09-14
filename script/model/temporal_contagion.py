@@ -41,7 +41,7 @@ import json
 src_dir = os.path.abspath(os.path.join(os.pardir, os.pardir, 'src'))
 sys.path[0] = src_dir
 import model.contagion as contagion
-import network.shift_graph_maker as sgm
+import network.network_builder as build
 import gale.general.errors as gerr
 import parser.saver as save
 import parser.support as support
@@ -112,8 +112,7 @@ def main(args):
     movie_df = support.get_movies_df(role_key)
     print('Got all_movies')
     gender_df = support.get_staff_df('producers')[['_id', 'female_count', 'first_movie', 'last_movie', 'gender']]
-    movies_period = movie_df[(movie_df.year >= start_year) & (movie_df.year < end_year)]
-    seeds = sgm.generate_gender_seeds(gender_df)
+    movies_period = movie_df[(movie_df.year >= start_year) & (movie_df.year < ennetwork_builders = build.generate_gender_seeds(gender_df)
     #starting the dynamics
     print ('Making data with parameter prob: {:.2f}, dose: {:.2f}, threshold: {:.2f}'.format(P, D, T))
     
@@ -127,8 +126,7 @@ def main(args):
     #for the real schedule
     print('\t\t Building network')
     print('\t\t Contagion propagation!')
-    for i in range(iter_no):
-        G = sgm.build_temporal_network(movies_period, seeds, belief_type, T)
+    for i in range(inetwork_builderG = build.build_temporal_network(movies_period, seeds, belief_type, T)
         adopter_history = contagion.contagion_belief_propagation_temporal_network(G, P, D, T)
         if i == 0:
             print('\t\t Initializing df')

@@ -41,7 +41,7 @@ import json
 src_dir = os.path.abspath(os.path.join(os.pardir, os.pardir, 'src'))
 sys.path[0] = src_dir
 import model.contagion as contagion
-import network.shift_graph_maker as sgm
+import network.build_network as build
 import gale.general.errors as gerr
 import parser.saver as save
 import parser.support as support
@@ -135,7 +135,7 @@ def main(args):
         print('\t\t Building network')
         print('\t\t Contagion propagation!')
         for i in range(iter_no):
-            G = sgm.build_temporal_network(movies_period, seeds, belief_type, T)
+            G = build.build_temporal_network(movies_period, seeds, belief_type, T)
             adopter_history = contagion.contagion_belief_propagation_temporal_network(G, P, D, T)
             if i == 0:
                 print('\t\t Initializing df')

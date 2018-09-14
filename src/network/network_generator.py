@@ -307,3 +307,88 @@ def assign_gaps(movie_dict, gap_dict, years=10):
             movie_dict_per_producer[producer] = m_num
     return movie_dict_per_producer, gap_dict_per_producer
 
+def distribute_movies(df, gap_dict_per_producer):
+    """
+    Distribute movies according to the gap dist
+    Input:
+        df - dataframe for movies
+        gap_dict_per_producer - dictionary of gaps per producer
+    Output:
+        df - dataframe for movies now filled with producers
+    """
+
+    df = df.copy(deep=True)
+    sorted_gap_dict_per_producer = sorted(gap_dict_per_producer.items(), key=lambda kv: (sum(kv[1]), len(kv[1])), reverse=True)
+    producers = [p[0] for p in sorted_gap_dict_per_producer]
+
+    for p in producers:
+        gaps = gap_dict_per_producer[p]
+        shuffle(gaps)
+        first_movie = find_first_available_movie(df, sum(gaps))
+        available_movies = find_unfilled_movies(df)
+        # when is the producer's first active year
+        start_year = df[df._id == first_movie].year.values[0]
+        # find the years that the producer made movie
+        working_years = calculate_years(start_year, gaps)
+        chosen_movies = choose_movies(available_movies, working_years)
+        df = add_producers(df, p, chosen_movies)
+    return df
+
+def add_producers(df, p, movie_list):
+    """
+    Append producer p to the producer list in df for the movie list
+    Input:
+        df - dataframe of the movies and producers
+        p - producer
+        movie_list - list of the movies that producer participated in
+    Output:
+        df - dataframe with the appended producer
+    """
+    mask = df['_id'].isin(movie_list)
+    df_valid = df[mask]
+    df.loc[mask, 'producers'] += [p]
+    return df
+
+def find_first_available_movie(df, N):
+    """
+    get the first movie to start
+    """
+    # find movies that are not filled with producers
+    df['availability'] = df.producers.apply(lambda x: len(x))
+    df_available = df[df.availability < df.producer_num]
+    # find movies that has the possibe years considering the sum of gaps N
+    last_year = df.iloc[-1].year
+    possible_year = last_year - N
+    df_available = df_available[df_available.year <= possible_year]
+    available_movie = np.random.choice(df_available._id.tolist())
+    return available_movie
+
+def calculate_years(start_year, gaps):
+    """
+    producers active year
+    """
+    years = [start_year]
+    for g in gaps:
+        years.append(years[-1]+g)
+    return years
+
+def find_unfilled_movies(df):
+    df['availability'] = df.producers.apply(lambda x: len(x))
+    df_available = df[df.availability < df.producer_num]
+    available_movies = df_available.groupby('year')['_id'].apply(list).to_dict()
+    return available_movies
+
+def choose_movies(available_movies, working_years):
+    """
+    available_movies - {year:[list of movies]}
+    workign_years - years that prodcer produced movie
+    """
+    participating_movies = []
+    for key, values in Counter(working_years).items():
+        participating_movies.extend(np.random.choice(available_movies[key], values, replace=False))
+    return participating_movies
+
+def append_producer(row, p, movies):
+    if row._id in movies:
+        row.producers.append(p)
+    return row
