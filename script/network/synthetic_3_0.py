@@ -1,7 +1,8 @@
 import json
 import os
 import sys
-import argparse
+from argparse import ArgumentParser
+
 from collections import Counter, defaultdict
 import numpy as np
 import pandas as pd
@@ -90,7 +91,7 @@ def main(args):
 if __name__ == '__main__':
     parser = ArgumentParser()
 
-    parser.add_argument('data_file', help='data directory')
+#     parser.add_argument('data_file', help='data directory')
 
     parser.add_argument('--start_year', default=1990, type=int, 
                         help='''which year to start. Includes start year
