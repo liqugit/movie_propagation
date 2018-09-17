@@ -67,6 +67,8 @@ def main(args):
 
         # make team size the mean of the team size of the year
         total_movie_frame = generate.assign_team_size(total_movie_frame, number_of_producers_per_year)
+        print(total_movie_frame)
+        input()
         total_num_teams = total_movie_frame.producer_num.sum()
 
         #generate movies
