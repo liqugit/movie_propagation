@@ -159,6 +159,19 @@ def bootstrap(movie_num, num_producers):
     samples = samples.reshape((num_producers, )).tolist()
     return samples
 
+### assign team number
+def assign_team_size(df_input, number_of_producers_per_year):
+    
+    for year, df in df_input.groupby('year'):
+        num_producers = number_of_producers_per_year[year] #duplicate producers are already dropped
+        mean_size = np.mean(df.producer_num.tolist())
+        mean_ceil = np.ceil(mean_size)
+        mean_floor = np.floor(mean_size)
+        #fix the team size to its mean
+        df['producer_num'] = df.producer_num.apply(generate.team_size, args=(mean_ceil, mean_floor))
+        df_input['producer_num'].update(df.producer_num)
+    return df_input
+
 ### define producers ###
 def team_size(x, mean_ceil, mean_floor):
     return random.choice([int(mean_ceil), int(mean_floor)])
@@ -391,4 +404,4 @@ def choose_movies(available_movies, working_years):
 def append_producer(row, p, movies):
     if row._id in movies:
         row.producers.append(p)
-    return row
+    return row  
