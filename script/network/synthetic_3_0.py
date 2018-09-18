@@ -18,7 +18,7 @@ from copy import copy
 from random import random
 from math import exp
 
-
+#hola
 src_dir = os.path.abspath(os.path.join(os.pardir, os.pardir,'src'))
 sys.path[0] = src_dir
 from parser.support import ROLES, CREDITS
@@ -34,7 +34,12 @@ def main(args):
     start_year = args.start_year
     end_year = args.end_year
     iter_num = args.iter_num
+    version_list = generate.make_version(iter_num)
+    data_dir = '/home/projects/movie-network/data/synthetic_data/model_3_0/'
+    gender_dir = '/home/projects/movie-network/data/synthetic_data/genders/'
+
     # read original data
+    print('reading and analyzing data')
     movie_producer_df = generate.open_movie_data(start_year, end_year)
     # expand the producer list
     unlistyfied_producer_df = generate.unlistify(movie_producer_df, 'producers')
@@ -57,6 +62,7 @@ def main(args):
     gap_dict = generate.get_gaps_gender(unlistyfied_producer_df)
     gap_data = generate.get_gaps(unlistyfied_producer_df)
     for i in range(iter_num):
+        print('iter num {}'.format(i))
         #generate new producers every round
         generated_producers = generate.generate_producers(total_num_producers)
         generated_producers_dict = {}
@@ -67,8 +73,6 @@ def main(args):
 
         # make team size the mean of the team size of the year
         total_movie_frame = generate.assign_team_size(total_movie_frame, number_of_producers_per_year)
-        print(total_movie_frame)
-        input()
         total_num_teams = total_movie_frame.producer_num.sum()
 
         #generate movies
@@ -85,10 +89,22 @@ def main(args):
         pvalue, D = ks_2samp(gap_data, gap_result)
         #if pvalue is small, go into shuffling
         if pvalue < 0.1:
+            print('shuffle \n')
             df_distance = shuffle.find_distances(gap_data, gap_result)
             max_p, max_d = shuffle.find_max_distance(df_distance)
             df_match = shuffle.find_max_distance_gaps(unlistyfied_result_df, max_p)
-            shuffle.shuffle(unlistyfied_result_df, gap_data)    
+            df_gen = unlistyfied_result_df.copy(deep=True)
+            df_gen = shuffle.shuffle(df_gen, gap_data)
+        
+        df_output = shuffle.organize_dataframe(df_gen)
+        df_output.to_json(os.path.join(data_dir, 'movies_3_0_{}.json'.format(version_list[i])), orient='split')
+        #save gender
+        generated_gender_df = pd.DataFrame(columns=['producer_id', 'gender'])
+        for g, producers in generated_producers_dict.items():
+            genders = [g for ii in producers]
+            appending_df = pd.DataFrame({'producer_id': producers, 'gender': genders})
+            generated_gender_df = generated_gender_df.append(appending_df)
+        generated_gender_df.to_json(os.path.join(gender_dir, 'model_3_0', 'version_{}.json'.format(version_list[i])), orient='split')
 
 if __name__ == '__main__':
     parser = ArgumentParser()
@@ -98,7 +114,7 @@ if __name__ == '__main__':
     parser.add_argument('--start_year', default=1990, type=int, 
                         help='''which year to start. Includes start year
                             ''')
-    parser.add_argument('--end_year', default=1999, type=int, 
+    parser.add_argument('--end_year', default=2000, type=int, 
                     help='''which year to start. Includes start year
                         ''')
     parser.add_argument('--iter_num', default=10, type=int, 

@@ -38,6 +38,7 @@ from parser.my_mongo_db_login import DB_LOGIN_INFO
 import parser.support as support
 
 
+
 ### Classes ###
 
 
@@ -66,7 +67,7 @@ def open_movie_data(start_year=1990, end_year=2000):
     movie_producer_df = movie_period[['_id', 'producers', 'producing_gender_percentage', 'title', 'year']]
     movie_producer_df = movie_producer_df.sort_values('year')
     #add producer team sizes
-    movie_producer_df['producer_num'] = movie_producer_df['producers'].apply(lambda x: len(x))
+    movie_producer_df.loc[:,'producer_num'] = movie_producer_df['producers'].apply(lambda x: len(x))
 
     return movie_producer_df
 
@@ -168,7 +169,7 @@ def assign_team_size(df_input, number_of_producers_per_year):
         mean_ceil = np.ceil(mean_size)
         mean_floor = np.floor(mean_size)
         #fix the team size to its mean
-        df['producer_num'] = df.producer_num.apply(generate.team_size, args=(mean_ceil, mean_floor))
+        df.loc[:,'producer_num'] = df.producer_num.apply(team_size, args=(mean_ceil, mean_floor))
         df_input['producer_num'].update(df.producer_num)
     return df_input
 
@@ -336,7 +337,7 @@ def distribute_movies(df, gap_dict_per_producer):
 
     for p in producers:
         gaps = gap_dict_per_producer[p]
-        shuffle(gaps)
+        np.random.shuffle(gaps)
         first_movie = find_first_available_movie(df, sum(gaps))
         available_movies = find_unfilled_movies(df)
         # when is the producer's first active year

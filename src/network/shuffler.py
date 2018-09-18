@@ -29,7 +29,7 @@ from parser.support import ROLES, CREDITS
 from parser.my_mongo_db_login import DB_LOGIN_INFO
 import parser.support as support
 import network.network_builder as build
-
+import network.network_generator as generate
 
 ### Function ###
 
@@ -84,7 +84,7 @@ def find_max_distance_gaps(df_producers, max_p):
     Output:
         df_match - DataFrame with  matching gaps
     """
-    df_producers = unlistyfied_result_df.copy(deep=True)
+    df_producers = df_producers.copy(deep=True)
     df_match = pd.DataFrame(columns=['_id', 'producers', 'year', 'gaps'])
     producers = df_producers.producers.unique().tolist()
     for p, df_select in df_producers.groupby('producers'):
@@ -102,19 +102,19 @@ def get_area(gap_data, gap_gen):
     """
     df_distance = find_distances(gap_data, gap_gen)
     area = df_distance.distances.abs().sum()
-
+   
     return area
 
 def acceptance_probability(area, area_new, temp):
     """
     Are we going to accept the new state?
     """
-    k = 0.1
+    k = 0.001
     ap = exp((area-area_new)/(k*temp))
     return ap
 
 ##### Shuffle function #########
-def shuffle(df_producers, gap_data, temp = 1):
+def shuffle(df_gen, gap_data, temp = 1):
     """
     Using simmulated annealing as the shuffle parameter. 
     note: the p value is not significant, but can find the minimum area between teh two probabilities.
@@ -126,31 +126,31 @@ def shuffle(df_producers, gap_data, temp = 1):
     """
     
     col_name = 'producers'
-    df_gen = df_producers.copy(deep=True)
-    alpha = 0.7
+#     df_gen = df_producers.copy(deep=True)
+    alpha = 0.99
     pvalue_old = 0
-    shuf = 3 #number of times to shuffle -> choosing the next 'neighbor'
+    shuf = 3
     # counter = 1 #every time counter hits %10 == 0, s is decreased by 1
 
-    gap_gen = net_gen.get_gaps(df_gen, col_name)
+    gap_gen = generate.get_gaps(df_gen, col_name)
     area = get_area(gap_data, gap_gen)
     counter = 0
-    while temp > 0.05:
+    while temp > 0.01:
         print(temp)
-        for s in range(shuf):
-            df_gen_new = shuffle_direction(df_gen, gap_data, gap_gen)
+        #for s in range(shuf):
+        df_gen_new = shuffle_direction(df_gen, gap_data, gap_gen)
         #get the new area
-        gap_gen_new = net_gen.get_gaps(df_gen_new, col_name)
+        gap_gen_new = generate.get_gaps(df_gen_new, col_name)
         area_new = get_area(gap_data, gap_gen_new)
         #Accept if area_new < area
         if area_new < area:
-            print('\t New area smaller than old')
+            print('\t New area smaller than old, {:.3f}'.format(area_new))
             df_gen = df_gen_new
             area = copy(area_new)
             temp = temp*alpha
         #if new area is bigger than old area, do probability acceptance
         else:
-            print('\t New area larger than old')
+            print('\t New area larger than old, {:.3f}'.format(area_new))
             ap = acceptance_probability(area, area_new, temp)
             p = random()
             if ap > p:
@@ -166,11 +166,14 @@ def shuffle(df_producers, gap_data, temp = 1):
 #             temp = 0.01
         if temp < 0.09:
             print(temp, area)
+       
         counter += 1
-        gap_gen = net_gen.get_gaps(df_gen, col_name)
+        gap_gen = generate.get_gaps(df_gen, col_name)
         D, pvalue = ks_2samp(gap_data, gap_gen)
-        print('\t\t P value: {:.3f}, counter {}'.format(pvalue, counter))    
-
+        if pvalue > 0.1:
+            temp = 0.00001
+        print('\t\t P value: {:.3f}, D {:.3f}, counter {}'.format(pvalue, D, counter))    
+        print(pvalue)
     return df_gen
 
 def shuffle_direction(df, gap_data, gap_gen):
@@ -183,7 +186,6 @@ def shuffle_direction(df, gap_data, gap_gen):
     Output: 
         df_new - unlistyfied producer dataframe
     """
-    df = df.copy(deep=True)
     df_distance = find_distances(gap_data, gap_gen)
     maxP, maxD = find_max_distance(df_distance)
     if maxD < 0:
@@ -317,3 +319,27 @@ def get_swap_movie(df, producers_multi_movie, maxP):
     # choose another movie by producer1 that is not year1 +- maxp
     df_swap = producer1_movies[~producer1_movies.year.isin([year1+maxP, year1-maxP])]
     return df_swap, producer1, movie1, year1
+
+def aggregate(df, key_col='_id', val_col='producers'):
+    keys, values = df[[key_col, val_col]].sort_values(key_col).values.T
+    ukeys, index = np.unique(keys,True)
+    arrays = np.split(values,index[1:])
+    df2 = pd.DataFrame({key_col:ukeys,val_col:[list(a) for a in arrays]})
+    return df2
+
+
+def organize_dataframe(df_input, key_col='_id', val_col='producers'):
+    """
+    when the movie-producer unlistyfied result is finalized, put it together into format that is read by the model
+    Input:
+        df_input - unorgazined dataframe
+        key_col - 
+        val_col - 
+    Output:
+        df_output - aggregated dataframe
+    """
+    df1 = aggregate(df_input, key_col, val_col)
+    df2 = df_input[['_id', 'year', 'producer_num']].drop_duplicates()
+    
+    df_output = pd.merge(df1, df2, on=key_col).sort_values('year').dropna()
+    return df_output
